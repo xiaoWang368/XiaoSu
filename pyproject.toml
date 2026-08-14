@@ -3,4 +3,13 @@ name = "xiaosu"
 version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "colorlog>=6.12.0",
+    "grandalf>=0.8",
+    "langgraph>=1.2.11",
+    "python-dotenv>=1.2.2",
+]
+#将uv的默认镜像换成阿里云的
+[[tool.uv.index]]
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true
