@@ -46,11 +46,17 @@ class ImportGraphState(TypedDict, total=False):
 
     pdf_path: str  # PDF 文件路径
 
+    word_path: str  # Word 文件路径
+
     md_path: str  # 转换后Markdown 文件路径
 
     # ==================== 文件信息 ====================
 
     file_title: str  # 文件标题（不含扩展名）
+
+    doc_id: str  # 文档唯一标识(引用定位用)
+
+    doc_name: str  # 文档名(带扩展名,引用展示用)
 
     item_name: str  # 识别出的商品/产品名称(方便程序员用)
 
