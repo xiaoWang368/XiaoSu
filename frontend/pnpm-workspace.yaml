@@ -1,0 +1,3 @@
+# pnpm 11 配置:允许 sharp 构建脚本(Next 图片优化原生依赖)
+allowBuilds:
+  sharp: true

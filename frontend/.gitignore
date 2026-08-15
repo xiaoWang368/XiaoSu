@@ -1,0 +1,11 @@
+node_modules/
+.next/
+out/
+build/
+*.tsbuildinfo
+next-env.d.ts
+.env*.local
+
+# 根 .gitignore 的 lib/ 规则会误伤本目录,反选恢复
+!lib/
+!lib/**
