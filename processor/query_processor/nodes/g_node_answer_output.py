@@ -65,6 +65,7 @@ class NodeAnswerOutput(NodeBase):
 
         # 闲聊/问候:不检索文档,交给 LLM 结合上下文回答(不拒答、不用固定文案)
         if intent == "chat" or _is_greeting(state.get("original_query", "")):
+            state["refused"] = False
             messages = self._build_chat_messages(state)
             try:
                 answer, usage = self._stream_answer(messages)
