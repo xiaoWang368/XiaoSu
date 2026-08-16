@@ -72,9 +72,9 @@ class KBQueryWorkflow:
         intent = state.get("intent", "knowledge")
         if intent == "tool":
             return "node_tool_agent"
-        if intent == "refuse":
-            return "node_answer_output"
-        # knowledge:并行进入三路检索
+        if intent in ("refuse", "chat"):
+            return "node_answer_output"  # 拒答/闲聊都进 answer_output(闲聊会给友好介绍)
+        # knowledge:并行进入两路检索
         return ["node_search_embedding", "node_search_embedding_hyde"]
 
     def compile(self):

@@ -26,13 +26,42 @@ IM 与 Web 两条入口共用的唯一对外接口：内部驱动 LangGraph KBQu
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Dict, List, Optional, Sequence
 
 from processor.query_processor.main_graph import KBQueryWorkflow
+from processor.query_processor.prompt.answer import REFUSAL_TEXT
 from processor.query_processor.state import QueryGraphState
+
+
+def _classify_error(exc: Exception) -> str:
+    """把底层异常归类为 auth/rate/network/timeout/engine,供上层生成友好文案(BUG-4)。"""
+    try:
+        import openai
+    except ImportError:  # noqa: BLE001
+        openai = None  # type: ignore[assignment]
+    seen: set = set()
+    cur = exc
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        if openai is not None:
+            if isinstance(cur, openai.AuthenticationError):
+                return "auth"
+            if isinstance(cur, openai.RateLimitError):
+                return "rate"
+            if isinstance(cur, openai.APITimeoutError):
+                return "timeout"
+            if isinstance(cur, openai.APIConnectionError):
+                return "network"
+        if isinstance(cur, TimeoutError):
+            return "timeout"
+        if isinstance(cur, ConnectionError):
+            return "network"
+        cur = getattr(cur, "__cause__", None) or getattr(cur, "__context__", None)
+    return "engine"
 
 # ==================== 对外强类型契约 ====================
 
@@ -100,6 +129,14 @@ class QueryError(Exception):
 _CITE_RE = re.compile(r"[【\[](\d+)[】\]]")
 
 
+def _looks_like_refusal(text: str) -> bool:
+    """识别 LLM 生成的软拒答文案(说"没找到 / 未找到 / 无法回答"等),用于统一 refused 标志。"""
+    s = (text or "").strip()
+    if s.startswith(("文档未找到", "文档里没找到", "文档中未找到", "未找到相关", "没有找到相关", "无法回答")):
+        return True
+    return "没找到相关信息" in s or "未找到相关信息" in s or "未收录" in s
+
+
 def _parse_citations(answer: str, sources: Sequence[dict]) -> List[Citation]:
     """把答案中的【N】标记映射到检索来源，生成可点击引用。"""
     citations: List[Citation] = []
@@ -145,7 +182,7 @@ class QueryService:
     """
 
     def __init__(self, refusal_text: str = "", node_status_enabled: bool = True):
-        self._refusal_text = refusal_text or "文档里没找到相关信息，换一种问法或上传相关文档后再试。"
+        self._refusal_text = refusal_text or REFUSAL_TEXT
         self._node_status_enabled = node_status_enabled
 
     # ---------- 内部：运行 LangGraph 图 ----------
@@ -187,7 +224,7 @@ class QueryService:
         except QueryError:
             raise
         except Exception as exc:  # noqa: BLE001
-            raise QueryError(f"查询管线执行失败: {exc}", kind="engine") from exc
+            raise QueryError(f"查询管线执行失败: {exc}", kind=_classify_error(exc)) from exc
 
     # ---------- 对外：非流式（IM 用） ----------
 
@@ -196,9 +233,13 @@ class QueryService:
         session_id: str,
         message: str,
         history: Optional[List[dict]] = None,
+        user_id: str = "web",
+        platform: str = "web",
     ) -> QueryResult:
         state = await asyncio.to_thread(self._run_graph, session_id, message, history or [], False)
-        return self._to_result(state, session_id)
+        result = self._to_result(state, session_id)
+        self._log_query(session_id, user_id, platform, message, result)
+        return result
 
     # ---------- 对外：流式（Web SSE 用） ----------
 
@@ -207,6 +248,8 @@ class QueryService:
         session_id: str,
         message: str,
         history: Optional[List[dict]] = None,
+        user_id: str = "web",
+        platform: str = "web",
     ) -> AsyncIterator[SSEEvent]:
         """
         流式查询：产出 SSE 事件序列。
@@ -239,6 +282,7 @@ class QueryService:
                     self._run_graph, session_id, message, history or [], True, _on_node, _on_token
                 )
                 holder["result"] = self._to_result(state, session_id)
+                self._log_query(session_id, user_id, platform, message, holder["result"])
             except Exception as exc:  # noqa: BLE001
                 holder["error"] = exc
             finally:
@@ -255,7 +299,7 @@ class QueryService:
             task.cancel()
 
         if "error" in holder:
-            raise QueryError(f"查询管线执行失败: {holder['error']}", kind="engine")
+            raise QueryError(f"查询管线执行失败: {holder['error']}", kind=_classify_error(holder["error"]))
 
         result: QueryResult = holder["result"]
         if result.citations:
@@ -275,12 +319,37 @@ class QueryService:
                 return [x for x in value if isinstance(x, dict)]
         return []
 
+    @staticmethod
+    def _log_query(session_id: str, user_id: str, platform: str, question: str, result: QueryResult) -> None:
+        """写对话日志(后台 /logs 用,含 工具/引用/Token/拒答)。失败仅记日志,不影响主流程。"""
+        try:
+            from processor.db import insert_chat_log
+            insert_chat_log({
+                "session_id": session_id,
+                "user_id": user_id,
+                "platform": platform,
+                "question": question,
+                "answer": result.answer,
+                "tools_used": result.tools_used,
+                "citations": [c.to_dict() for c in result.citations],
+                "tokens": result.usage.__dict__,
+                "refused": result.refused,
+            })
+        except Exception as exc:  # noqa: BLE001
+            logging.getLogger("query").warning(f"写对话日志失败: {exc}")
+
     def _to_result(self, state: Dict[str, Any], session_id: str) -> QueryResult:
         answer = str(state.get("answer") or "").strip()
         sources = self._sources(state)
         citations = _parse_citations(answer, sources)
-        refused = bool(state.get("refused")) or (not answer and not sources)
-        if not answer:
+        refused = bool(state.get("refused"))
+        if not refused and not state.get("tools_used"):
+            # 软拒答:检索到了资料但 LLM 判定无关而说"没找到" → 统一置 refused,保证标志一致
+            if (not answer and not sources) or _looks_like_refusal(answer):
+                refused = True
+        if refused:
+            answer = self._refusal_text
+        elif not answer:
             answer = self._refusal_text
         usage = LLMUsage(
             prompt_tokens=int(state.get("prompt_tokens") or 0),

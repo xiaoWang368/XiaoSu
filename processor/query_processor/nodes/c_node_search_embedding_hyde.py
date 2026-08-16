@@ -14,7 +14,7 @@ class NodeSearchEmbeddingHyde(NodeBase):
 
     def process(self, state: QueryGraphState) -> QueryGraphState:
         logger.info(f"【{self.name}】节点逻辑")
-        query_text = state.get("original_query", "")
+        query_text = state.get("rewritten_query") or state.get("original_query", "")
         hypo = self._hypothetical_answer(query_text)
         if not hypo:
             return {"hyde_embedding_chunks": []}

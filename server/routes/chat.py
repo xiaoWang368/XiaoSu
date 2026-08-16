@@ -65,7 +65,9 @@ async def chat(req: ChatRequest) -> StreamingResponse:
     async def gen() -> AsyncIterator[str]:
         yield _sse("status", {"message": "正在理解问题…"})
         try:
-            async for ev in _svc.stream_query(req.session_id, req.message, req.history or []):
+            async for ev in _svc.stream_query(
+                req.session_id, req.message, req.history or [], req.user_id, req.platform
+            ):
                 yield _sse(ev.type, ev.data)
         except Exception as exc:  # noqa: BLE001
             logger.exception("chat SSE 失败")

@@ -88,9 +88,15 @@ class NodeToolAgent(NodeBase):
 
         llm_tools = get_llm_client().bind_tools(TOOL_SCHEMAS)
         tools_used = list(state.get("tools_used") or [])
+        # 工具路径多轮 LLM 调用都会消耗 token,按 usage_metadata 累加(BUG-1 修复)
+        prompt_tokens = completion_tokens = total_tokens = 0
         answer = ""
         for _ in range(MAX_ITERS):
             resp = llm_tools.invoke(messages)
+            usage = getattr(resp, "usage_metadata", None) or {}
+            prompt_tokens += int(usage.get("input_tokens") or 0)
+            completion_tokens += int(usage.get("output_tokens") or 0)
+            total_tokens += int(usage.get("total_tokens") or 0)
             tool_calls = resp.tool_calls or []
             if not tool_calls:
                 answer = resp.content or ""
@@ -106,6 +112,10 @@ class NodeToolAgent(NodeBase):
         state["tools_used"] = tools_used
         if answer:
             state["answer"] = answer
+        if total_tokens:
+            state["prompt_tokens"] = prompt_tokens
+            state["completion_tokens"] = completion_tokens
+            state["total_tokens"] = total_tokens
         return state
 
     def _execute_tool(self, name: str, args: dict) -> str:
