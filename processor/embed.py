@@ -35,9 +35,8 @@ def embed_dense(texts: list[str]) -> list[list[float]]:
 def _embed_dashscope(texts: list[str]) -> list[list[float]]:
     """DashScope text-embedding-v3(OpenAI 兼容)。失败抛错(不静默降级,避免向量空间错乱)。"""
     from openai import OpenAI
-    from processor.settings import get_settings
-    s = get_settings()
-    client = OpenAI(api_key=s.openai_api_key, base_url=s.openai_api_base)
+    from config.llm_config import llm_config
+    client = OpenAI(api_key=llm_config.api_key, base_url=llm_config.base_url)
     resp = client.embeddings.create(
         model=DASHSCOPE_EMBEDDING_MODEL,
         input=texts,

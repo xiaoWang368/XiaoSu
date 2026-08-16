@@ -57,9 +57,12 @@ class NodeEntry(BaseNode):
         state["file_dir"] = file_dir
 
         if ext == ".md" or ext == ".txt":
-            # 纯文本直接读入,跳过解析节点
-            with open(path_obj, "r", encoding="utf-8") as f:
-                state["md_content"] = f.read()
+            # 纯文本直接读入,跳过解析节点;编码探测:utf-8 失败回退 gbk(BUG-6)
+            raw = path_obj.read_bytes()
+            try:
+                state["md_content"] = raw.decode("utf-8")
+            except UnicodeDecodeError:
+                state["md_content"] = raw.decode("gbk", errors="replace")
             state["is_md_read_enabled"] = True
             state["md_path"] = str(path_obj)
         elif ext == ".pdf":
@@ -90,7 +93,7 @@ if __name__ == "__main__":
     print(f"标题: {result.get('file_title')}")
     print(f"输出目录: {result.get('file_dir')}")
     print(f"md_path: {result.get('md_path')}")
-    print(f"md_content 前100字: {str(result.get('md_content', ''))}...")
+    print(f"md_content 前100字: {str(result.get('md_content', '')[:100])}...")
     print(f"is_md_read_enabled: {result.get('is_md_read_enabled')}")
     print(f"is_pdf_read_enabled: {result.get('is_pdf_read_enabled')}")
     print(f"is_word_read_enabled: {result.get('is_word_read_enabled')}")

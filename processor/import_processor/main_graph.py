@@ -4,6 +4,7 @@ from langgraph.constants import END
 from langgraph.graph import StateGraph
 
 from processor.import_processor.base import setup_logging
+from processor.import_processor.io_paths import new_doc_id
 from processor.import_processor.nodes.b1_node_word_to_md import NodeWordToMD
 from processor.import_processor.nodes.b_node_pdf_to_md import NodePDFToMD
 from processor.import_processor.nodes.d_node_document_split import NodeDocumentSplit
@@ -86,7 +87,7 @@ if __name__ == "__main__":
     setup_logging()
     workflow = KBImportWorkflow()
     init_state = {"import_file_path": r"F:\数据\新人入职指南.md",
-                  "doc_id": "demo"}
+                  "doc_id": new_doc_id()}
     for event in workflow.run(init_state, stream=True):
         print(event)
     # result = workflow.run(init_state, stream=True)

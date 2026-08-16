@@ -64,19 +64,11 @@ class NodeBGEEmbedding(BaseNode):
 
     def _embed(self, texts: List[str]) -> dict:
         """
-        生成向量。若 BGE-M3 本地模型存在则优先用 utils.embedding_utils(BGE-M3);
-        模型缺失时直接用确定性嵌入(避免慢速导入 pymilvus),保证任何机器都能跑。
+        生成向量。与查询共用 processor.embed.embed_dense(DashScope → 确定性),
+        保证导入/查询向量空间一致。
         """
-        from config.embedding_config import embedding_config
-        model_path = embedding_config.bge_m3_path
-        if model_path and Path(model_path).exists():
-            try:
-                from utils.embedding_utils import generate_embeddings
-                return generate_embeddings(texts)  # {"dense": [...], "sparse": [...]}
-            except Exception as exc:  # noqa: BLE001
-                logging.warning(f"{self.name} 使用 BGE-M3 失败,回退确定性嵌入: {exc}")
-        from processor.embed import deterministic_embeddings
-        dense = deterministic_embeddings(texts)
+        from processor.embed import embed_dense
+        dense = embed_dense(texts)
         return {"dense": dense, "sparse": [{}] * len(texts)}
 
     def _step_3_backup(self, state, output_data):
