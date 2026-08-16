@@ -1,6 +1,6 @@
 # 「小苏」基础设施编排
 # 向量库用进程内 Chroma(无需容器);应用服务(backend/mock/frontend)默认本地跑
-# (scripts/start.sh),如需全容器化后续补 Dockerfile 后在此追加服务。
+# (scripts/start.sh),
 services:
   postgres:
     image: postgres:16-alpine
