@@ -29,3 +29,11 @@ class QueryGraphState(TypedDict):
     rewritten_query: str  # 改写后的问题
     history: list  # 历史对话记录
     is_stream: bool  # 是否流式输出
+
+    # 新增(路由/拒答/日志所需)
+    intent: str  # 路由结果: knowledge / tool / refuse
+    refused: bool  # 硬拒答标记
+    tools_used: List[str]  # 本次调用过的工具
+    prompt_tokens: int  # LLM token 消耗
+    completion_tokens: int
+    total_tokens: int
