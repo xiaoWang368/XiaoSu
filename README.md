@@ -22,7 +22,7 @@
 - **知识库增量更新**:上传同名文档按 sha256 去重 / 替换,不重复处理。
 - **工程规范**:uv 管理 Python 依赖、pnpm 管理前端、配置全走环境变量、日志落 `logs/` 目录、`.env` 不入库。
 
-> **开发进度**:核心问答引擎(检索 / 工具调用 / 流式)与文档导入管线已可用;钉钉 IM 接入与 Web 管理后台(文档管理 / 对话日志 / 设置)正在开发,详见 [Roadmap](#roadmap)。
+> **开发进度**:核心问答引擎、文档导入管线、钉钉 IM 接入、Web 管理后台(文档管理 / 对话日志 / 设置 / 引用原文页)、一键启动脚本、自动化测试**均已可用**。一条命令 `bash scripts/start.sh` 启动全栈。详见 [Roadmap](#roadmap)。
 
 ---
 
@@ -32,13 +32,13 @@
 
 ```
 ┌───────────────────────────┐         ┌────────────────────────────────┐
-│      员工 (入口)            │         │       管理员 (Web 后台,开发中)     │
-│  ┌─────────┐  ┌─────────┐  │         │   /docs  文档管理(待接入)          │
-│  │ 钉钉 IM  │  │ Web 聊天  │  │         │   /logs  对话日志(待接入)          │
-│  │(开发中)  │  │ 页(可用) │  │         │   /settings 设置(待接入)          │
+│      员工 (入口)            │         │       管理员 (Web 后台)             │
+│  ┌─────────┐  ┌─────────┐  │         │   /docs  文档管理                  │
+│  │ 钉钉 IM  │  │ Web 聊天  │  │         │   /logs  对话日志                  │
+│  │ (可用)   │  │  (可用)  │  │         │   /settings 设置 / IM 状态         │
 │  └────┬────┘  └────┬────┘  │         └───────────────┬────────────────┘
 └───────┼────────────┼────────┘                         │
-        │            │  POST /api/chat (SSE)           │ REST(待接入)
+        │            │  POST /api/chat (SSE)           │ REST
         │            ▼                                ▼
 ┌───────┴───────────────────────────────────────────────────────────────┐
 │                          FastAPI 后端 (server/, :8000)                  │
@@ -119,45 +119,50 @@ node_entry ──校验扩展名 / 写入本地备份 / MinIO──▶ 按扩展
 ```
 XiaoSu/
 ├── server/                  # FastAPI 后端
-│   ├── app.py               #   应用入口(日志落盘、CORS、路由挂载)
+│   ├── app.py               #   应用入口(日志落盘、CORS、路由挂载、启动灌库)
 │   └── routes/
 │       ├── chat.py          #   POST /api/chat —— SSE 流式问答
-│       └── im_webhook.py    #   IM 回调入口(钉钉,开发中)
-├── im/                      # IM 集成(平台无关适配层,开发中)
+│       ├── admin.py         #   文档管理 / 对话日志 / 设置 接口
+│       ├── doc.py           #   GET /doc/{id}?chunk=n —— 引用原文查看页
+│       └── im_webhook.py    #   飞书/企微回调预留(钉钉走 Stream worker,无 webhook)
+├── im/                      # IM 集成(平台无关适配层)
+│   ├── base.py              #   ChannelAdapter 抽象
 │   ├── handler.py           #   统一消息处理(平台无关)
 │   ├── session.py           #   会话存储(用户 ID + 会话维度隔离)
+│   ├── worker.py            #   独立进程入口(python -m im.worker)
 │   └── channels/
-│       └── dingtalk.py      #   钉钉机器人适配器
+│       └── dingtalk.py      #   钉钉 Stream 机器人适配器(WebSocket)
 ├── processor/               # 核心处理逻辑
 │   ├── db.py                #   PostgreSQL 数据层(documents/chunks/chat_logs/settings)
 │   ├── embed.py             #   确定性稠密向量(1024 维,jieba + bigram)
-│   ├── settings.py          #   全局配置
+│   ├── retrieval.py         #   向量检索(查询管线复用)
 │   ├── import_processor/    #   文档导入管线(LangGraph)
 │   │   ├── ingest.py        #     导入门面:去重/替换/状态机/种子灌库
 │   │   ├── io_paths.py      #     doc_id 与本地路径管理
 │   │   ├── main_graph.py    #     导入工作流编排
-│   │   └── nodes/           #     entry / pdf→md / word→md / split / embed / import
+│   │   └── nodes/           #     entry / pdf→md / word→md / split / embed / store
 │   └── query_processor/     #   查询管线(LangGraph)
-│       ├── service.py       #     SSE 门面 + 引用解析 + 异常归一
-│       ├── retrieval.py     #     向量检索
+│       ├── service.py       #     SSE 门面 + 引用解析 + 异常归一 + 日志落库
 │       ├── main_graph.py    #     查询工作流编排
-│       ├── prompt/          #     answer / item_name_recognition 提示词
+│       ├── prompt/          #     answer / chat / item_name_recognition 提示词
 │       └── nodes/           #     route / search / hyde / rrf / rerank / answer / tool_agent
 ├── mock_api/                # 内部系统 Mock 服务(:8001)
 │   └── app.py               #   员工 / 考勤 / 订单,确定性生成
 ├── frontend/                # 管理后台(Next.js 15 + React 19 + Tailwind 4)
-│   └── app/
-│       ├── page.tsx         #   对话页(可用)
-│       ├── docs/            #   文档管理(待接入)
-│       ├── logs/            #   对话日志(待接入)
-│       ├── settings/        #   设置(待接入)
-│       └── doc/[id]/        #   引用原文页(待接入)
+│   ├── app/
+│   │   ├── page.tsx         #   对话页(SSE 流式 + 引用)
+│   │   ├── docs/            #   文档管理(上传/列表/删除/状态)
+│   │   ├── logs/            #   对话日志(工具/Token/拒答)
+│   │   ├── settings/        #   设置(模型/IM 状态)
+│   │   └── doc/[id]/        #   引用原文页(跳转后端查看器)
+│   └── lib/ hooks/ components/
 ├── config/                  # 各模块配置单例(llm / chroma / minio / mineru / embedding)
 ├── utils/                   # 通用工具(llm / chroma / minio / mineru / embedding)
 ├── tool/                    # 日志工具
-├── data/                    # 运行时数据(seed 种子文档 / chroma 向量库)
+├── scripts/                 # 一键脚本(setup / start / dev-backend / dev-frontend / seed / test / verify)
+├── data/                    # 运行时数据(seed 种子文档 / uploads / chroma)
 ├── logs/                    # 运行日志
-├── test/                    # 测试脚本
+├── test/                    # pytest 测试(12 条,含 Mock LLM)
 ├── docker-compose.yml       # 基础设施编排(PostgreSQL + MinIO)
 ├── pyproject.toml           # Python 依赖(uv)
 └── .env.example             # 环境变量模板
@@ -172,7 +177,7 @@ XiaoSu/
 | 语言 / 运行时 | Python ≥ 3.12 · TypeScript | 后端 uv 管理,前端 pnpm 管理 |
 | 后端框架 | FastAPI · Uvicorn | SSE 流式问答接口 |
 | 工作流编排 | LangGraph(LangChain) | 导入 / 查询两条状态机工作流 |
-| 大模型 | Qwen(阿里云百炼 DashScope,OpenAI 兼容) | `qwen-plus`,温度/模型可配置 |
+| 大模型 | Qwen(阿里云百炼 DashScope,OpenAI 兼容) | 模型可配置(默认 `qwen3.7-max-2026-06-08`),温度 0.1 |
 | 向量库 | Chroma(进程内持久化) | 稠密向量检索,`data/chroma` |
 | 元数据库 | PostgreSQL 16 | documents / chunks / chat_logs / settings |
 | 对象存储 | MinIO | 原始文件存储(pdf/docx/md/txt) |
@@ -192,11 +197,15 @@ XiaoSu/
 - Node.js ≥ 20,且已安装 [pnpm](https://pnpm.io/)
 - Docker(用于 PostgreSQL + MinIO 基础设施)
 
-### 5.2 配置环境变量
+### 5.2 一键初始化
 
 ```bash
-cp .env.example .env
+bash scripts/setup.sh
 ```
+
+会执行:`uv sync` + 前端 `pnpm install` + 复制 `.env.example → .env`(若不存在)+ 创建 `data/uploads` / `data/chroma` / `logs` 目录。
+
+### 5.3 配置环境变量
 
 编辑 `.env`,至少配置:
 
@@ -206,48 +215,36 @@ cp .env.example .env
 | `OPENAI_API_BASE` | 兼容模式 Base URL |
 | `POSTGRES_*` | PostgreSQL 连接信息(与 docker-compose 默认值一致即可) |
 | `MINIO_*` | MinIO 连接信息 |
-| `DINGTALK_APP_KEY/SECRET` | 钉钉机器人凭据(IM 接入完成前可留空) |
+| `MINERU_API_TOKEN` | MinerU 在线解析 token(PDF / Word → Markdown) |
+| `DINGTALK_APP_KEY/SECRET` | 钉钉机器人凭据(Stream 模式,免公网) |
 
 > ⚠️ `.env` 已被 `.gitignore` 忽略,**严禁提交到仓库**。
 
-### 5.3 启动基础设施
+### 5.4 灌入种子文档
+
+知识库为空时,一键灌入种子文档(默认 `data/seed/`,可传目录如 `bash scripts/seed.sh /f/数据`):
 
 ```bash
-docker compose up -d
-# 启动 PostgreSQL(:5432)与 MinIO(:9000 / :9001),首次会自动建桶
-```
-
-### 5.4 安装依赖
-
-```bash
-uv sync                 # Python 后端依赖(使用项目内 .venv)
-cd frontend && pnpm install && cd ..
-```
-
-### 5.5 灌入种子文档
-
-知识库为空时,一键灌入 `data/seed/` 下的示例文档(员工手册 / 新人入职指南 / FAQ):
-
-```bash
-uv run python -c "from processor.import_processor.ingest import seed_from_directory; print(seed_from_directory())"
+bash scripts/seed.sh
 ```
 
 > 已实现"同名同内容去重、同名不同内容替换",重复执行不会重复导入。
 
-### 5.6 启动服务
+### 5.5 一条命令启动全栈
 
 ```bash
-# 终端 1:后端(SSE 问答接口)
-uv run uvicorn server.app:app --host 0.0.0.0 --port 8000
-
-# 终端 2:Mock 内部系统(员工 / 考勤 / 订单)
-uv run uvicorn mock_api.app:app --host 0.0.0.0 --port 8001
-
-# 终端 3:前端管理后台(对话页可用;文档管理/日志/设置待接入)
-cd frontend && pnpm dev    # http://localhost:3000
+bash scripts/start.sh
 ```
 
-### 5.7 验证服务
+会自动:启动 Docker 基础设施(PostgreSQL + MinIO)→ 后端(:8000)→ Mock 内部系统(:8001)→ 钉钉 worker → 前端(:3000)。日志统一落 `logs/`,`Ctrl+C` 全部停止。
+
+需要分开跑时:
+```bash
+bash scripts/dev-backend.sh    # 后端 + mock + 钉钉 worker
+bash scripts/dev-frontend.sh   # 前端
+```
+
+### 5.6 验证服务
 
 ```bash
 curl http://localhost:8000/api/health        # 后端 {"status":"ok"}
@@ -263,13 +260,29 @@ curl http://localhost:8001/api/employee/001  # Mock 员工数据
 
 浏览器打开 `http://localhost:3000`,在对话页提问:
 
-- 知识类(需先灌种子文档):「员工每年有几天年假?」「报销发票需要什么材料?」
+- 知识类(需先灌种子文档):「员工每年有几天年假?」「报销发票需要什么材料?」「员工入职需要提前准备哪些东西?」
 - 工具类:「员工 001 是哪个部门的?」「现在几点?」「上周一共多少订单?」
-- 多轮:「再详细讲讲」「换种方式说」
+- 闲聊/多轮:「你好」「那报销呢?」
 
-答案以流式呈现,引用以【N】链接展示(原文页待接入)。
+答案以**流式**呈现,引用【N】可**点击跳转到原文高亮页**(PDF 走 pdf.js 文本搜索,md/txt/docx 走偏移 `<mark>` 高亮)。
 
-### 6.2 后端 API
+### 6.2 Web 管理后台
+
+| 页面 | 功能 |
+|---|---|
+| `/docs` | 上传(md/txt/pdf/docx)、文档列表、索引状态徽标、删除 |
+| `/logs` | 对话日志:提问 / 回答 / 工具调用 / Token 消耗 / 拒答 |
+| `/settings` | 当前模型 / 嵌入配置 / 钉钉接入状态 |
+| `/doc/[id]` | 引用原文查看页(高亮) |
+
+### 6.3 IM 使用(钉钉)
+
+1. 钉钉开发者后台创建企业内部应用,开启 **Stream 模式**机器人,把 `AppKey / AppSecret` 填进 `.env` 的 `DINGTALK_APP_KEY/SECRET`;
+2. `bash scripts/start.sh`(会启动钉钉 worker);
+3. 在钉钉群里**添加该机器人**,群聊里 **@小苏** 或私聊提问即可。
+   - 支持多轮(按用户 + 会话隔离)、工具调用、引用 markdown 链接、超时/异常兜底文案。
+
+### 6.4 后端 API
 
 **`POST /api/chat`** —— SSE 流式问答,IM 与 Web 复用同一查询门面。
 
@@ -297,7 +310,7 @@ curl http://localhost:8001/api/employee/001  # Mock 员工数据
 
 > 异常一律归一为 `event: error` 并返回 HTTP 200,绝不裸 500。
 
-### 6.3 Mock 内部系统
+### 6.5 Mock 内部系统
 
 | 接口 | 说明 |
 |---|---|
@@ -307,46 +320,48 @@ curl http://localhost:8001/api/employee/001  # Mock 员工数据
 
 数据由「日期 + 员工 ID」确定性生成,同一天重复查询结果一致;缺省时间取最近一周,方便验证"上周/本周"类问题。
 
-### 6.4 自动化测试
+### 6.6 自动化测试
 
 ```bash
-uv run python test/_tmp_test_b1.py   # Word 转换流程自测(临时脚本)
-uv run python chroma_test.py          # Chroma 增删查自测
+bash scripts/test.sh   # 等价于 uv run pytest test -q
 ```
 
-> 结构化 pytest 用例(含 Mock LLM)在 Roadmap 中。
+12 条 pytest 用例,全部离线、不依赖真实 API / Key:
+
+- `test_mock_api.py` — Mock 内部系统接口(员工 / 考勤 / 订单 / 健康)
+- `test_citations.py` — 【N】引用解析 → 跳转 URL、拒答识别
+- `test_answer_output.py` — 硬拒答(不调 LLM)+ RAG / 闲聊(**Mock LLM**,替换 `_stream_answer`)
+- `test_chat_api.py` — SSE 事件流 + 出错返回 `event:error`(不 500)
 
 ---
 
 ## 七、Roadmap
 
-按笔试题验收清单排序,已实现 / 进行中 / 计划:
+按笔试题验收清单排序,已实现 / 计划:
 
 **✅ 已完成**
 
-- [x] 文档知识库数据层:md / txt / pdf / docx 导入管线,索引状态机 `pending / indexing / indexed / failed`
-- [x] 同名去重与替换(sha256),替换时清理旧向量与元数据
+- [x] 文档知识库:md / txt / pdf / docx 导入管线,索引状态机 `pending / indexing / indexed / failed`
+- [x] 同名去重与替换(sha256),替换时清理旧向量 / 元数据 / MinIO / 本地备份
 - [x] 智能问答:RAG 路由 + 双路检索(向量 / HyDE)+ RRF 融合 + 重排 + 带引用生成
-- [x] 流式输出(SSE 逐分片)
+- [x] 流式输出(SSE 逐分片)+ 引用原文高亮页(`/doc/{id}`,PDF 走 pdf.js、文本走 `<mark>`)
 - [x] 拒答机制(路由拒答 + 相关性阈值硬拒答 + 提示词兜底)
 - [x] 工具调用:模型自主决策,4 个工具(员工 / 考勤 / 订单 / 当前时间)+ Mock 内部系统
-- [x] 配置外置(环境变量 + `.env.example`)、日志落 `logs/`、`.env` 不入库
+- [x] **钉钉 Stream 机器人**:消息收发(群 @ / 私聊)、多轮会话隔离、引用 markdown、错误兜底
+- [x] **Web 管理后台**:文档管理(上传/列表/删除)、对话日志(工具/Token/拒答)、设置、引用原文页
+- [x] **一键启动** `scripts/start.sh`(docker + 后端 + mock + 钉钉 worker + 前端)+ `scripts/setup.sh` / `seed.sh` / `verify.sh`
+- [x] **自动化测试**:12 条 pytest(含 Mock LLM,离线可跑)
+- [x] 配置外置(环境变量 + `.env.example`)、日志落 `logs/`、`.env` 不入库、verify.sh 约束审计
 
-**🚧 进行中**
+**📋 计划(加分项)**
 
-- [ ] Web 管理后台:文档上传 / 列表 / 删除(`/api/docs`),打通 `import_document`
-- [ ] Web 管理后台:对话日志落库(`insert_chat_log`)+ 查询接口 + `/logs` 页(含 token / 工具调用)
-- [ ] 引用原文页:`/doc/{doc_id}` 后端接口 + 前端高亮定位
-
-**📋 计划**
-
-- [ ] 钉钉 Stream 机器人接入:消息收发、验签、群 @ / 私聊、引用卡片、错误兜底
-- [ ] 会话管理:按 `user_id + session_id` 隔离上下文,服务端持久化(IM 与 Web 共用)
-- [ ] 一键启动脚本 `scripts/start.sh` + `docker-compose` 纳入应用服务
-- [ ] 自动化测试:≥3 条 pytest,其中 ≥1 条 Mock LLM 不依赖真实 API
-- [ ] 模型超时 / 重试 / 降级兜底
-- [ ] 设置页:运行时切换模型、查看 IM 接入状态
-- [ ] 加分项:Token / 成本展示、多模型适配、MCP Server、Evals 评测脚本、可观测性
+- [ ] 多端 IM(飞书 / 企业微信,复用 `im/base.py` 适配层)
+- [ ] 钉钉卡片消息 / 富消息(引用卡片、AI 流式卡片)
+- [ ] 多模型适配(统一接口切换多家供应商)
+- [ ] Token / 成本实时展示
+- [ ] MCP Server(把「小苏」封装成可被 Claude Desktop / Cursor 调用)
+- [ ] 可观测性(Langfuse / OpenTelemetry)
+- [ ] Evals 评测脚本(≥20 条 case,跑准确率)
 
 ---
 
@@ -356,7 +371,7 @@ uv run python chroma_test.py          # Chroma 增删查自测
 - 前端用 **pnpm**,ESM(`"type": "module"`),禁止 CommonJS
 - 数据结构强类型:Pydantic / TypedDict(后端),TypeScript 类型契约(前端,不使用 `any`)
 - 单文件 ≤ 500 行,单目录 ≤ 8 个文件
-- 启动 / 测试 / 部署命令统一收敛到 `scripts/*.sh`(规划中)
+- 启动 / 测试 / 部署命令统一收敛到 `scripts/*.sh`(`setup` / `start` / `dev-backend` / `dev-frontend` / `seed` / `test` / `verify`)
 
 ---
 
