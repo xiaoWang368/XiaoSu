@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { BACKEND_URL } from "@/lib/api";
 import type { Citation } from "@/lib/types";
 
 /** 引用列表：点击跳转到后端原文查看页(高亮对应 chunk)。 */
@@ -12,7 +13,7 @@ export function CitationView({ citations }: { citations: Citation[] }) {
       {citations.map((c, i) => (
         <div key={i} className="rounded-md bg-slate-50 p-1.5 text-xs">
           <Link
-            href={c.url}
+            href={`${BACKEND_URL}${c.url}`}
             target="_blank"
             className="font-medium text-blue-600 hover:underline"
           >

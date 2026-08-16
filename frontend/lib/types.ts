@@ -37,3 +37,42 @@ export interface ChatMessage {
   content: string;
   citations?: Citation[];
 }
+
+/* ===== 管理后台接口类型 ===== */
+
+export interface DocItem {
+  id: string;
+  name: string;
+  ext: string;
+  size: number;
+  sha256: string;
+  status: string; // pending | indexing | indexed | failed
+  error: string | null;
+  chunk_count: number;
+  minio_key: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChatLogItem {
+  id: number;
+  session_id: string;
+  user_id: string;
+  platform: string;
+  question: string;
+  answer: string;
+  tools_used: string[] | null;
+  citations: unknown[] | null;
+  tokens: { prompt_tokens: number; completion_tokens: number; total_tokens: number } | null;
+  refused: boolean;
+  created_at: string;
+}
+
+export interface Settings {
+  model: string;
+  temperature: number;
+  embedding_model: string;
+  embedding_dim: number;
+  im_platform: string;
+  dingtalk_configured: boolean;
+}
