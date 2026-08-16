@@ -1,0 +1,42 @@
+# 「小苏」基础设施编排
+# 向量库用进程内 Chroma(无需容器);应用服务(backend/mock/frontend)默认本地跑
+# (scripts/start.sh),如需全容器化后续补 Dockerfile 后在此追加服务。
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: xiaosu-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-xiaosu}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-xiaosu_dev_pw}
+      POSTGRES_DB: ${POSTGRES_DB:-xiaosu}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-xiaosu} -d ${POSTGRES_DB:-xiaosu}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  minio:
+    image: minio/minio:latest
+    container_name: xiaosu-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-xiaosu}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-xiaosu_dev_pw}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+volumes:
+  pgdata:
+  miniodata:
