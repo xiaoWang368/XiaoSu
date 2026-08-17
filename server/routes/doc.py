@@ -76,16 +76,20 @@ def _pdf_viewer(doc: dict, chunks: List[dict], chunk_idx: int) -> str:
 <div class="bar">📄 <b>{name}</b> · PDF 原文 · <a href="/api/docs">返回</a></div>
 <div class="status" id="status">正在加载 PDF…</div>
 <div class="wrap" id="wrap"></div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="/static/pdfjs/pdf.min.js"></script>
 <script>
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+pdfjsLib.GlobalWorkerOptions.workerSrc = '/static/pdfjs/pdf.worker.min.js';
 const PDF_URL = {url_json};
 const QUERY = {query_json};
+// 归一化:去掉 markdown 标题#/加粗等标记,压缩空白,便于和 PDF 文本层比对
+const norm = (s) => (s || '').replace(/^#+\s*/gm, '').replace(/[*_`~]/g, '').replace(/\s+/g, ' ').trim();
+const NQUERY = norm(QUERY);
+const NKEY = NQUERY.slice(0, 20);
 (async () => {{
   const wrap = document.getElementById('wrap');
   const status = document.getElementById('status');
   let pdf;
-  try {{ pdf = await pdfjsLib.getDocument(PDF_URL).promise; }}
+  try {{ pdf = await pdfjsLib.getDocument({{url: PDF_URL, cMapUrl: '/static/pdfjs/cmaps/', cMapPacked: true}}).promise; }}
   catch(e) {{ status.textContent = 'PDF 加载失败:' + e.message; return; }}
   status.textContent = '共 ' + pdf.numPages + ' 页';
   let foundPage = -1;
@@ -93,7 +97,7 @@ const QUERY = {query_json};
   for (let p = 1; p <= pdf.numPages; p++) {{
     const page = await pdf.getPage(p);
     const tc = await page.getTextContent();
-    if (foundPage < 0 && QUERY && tc.items.map(i => i.str).join('').includes(QUERY.slice(0, 15))) foundPage = p;
+    if (foundPage < 0 && NKEY && norm(tc.items.map(i => i.str).join(' ')).includes(NKEY)) foundPage = p;
   }}
   for (let p = 1; p <= pdf.numPages; p++) {{
     const page = await pdf.getPage(p);
@@ -107,28 +111,29 @@ const QUERY = {query_json};
     div.appendChild(canvas);
     wrap.appendChild(div);
     await page.render({{canvasContext: canvas.getContext('2d'), viewport: vp}}).promise;
-    if (p === foundPage && QUERY) {{
+    if (p === foundPage && NQUERY) {{
       try {{
         const tlDiv = document.createElement('div');
         tlDiv.className = 'textLayer';
         tlDiv.style.width = vp.width + 'px';
         tlDiv.style.height = vp.height + 'px';
         div.appendChild(tlDiv);
-        const tl = new pdfjsLib.TextLayer({{
+        const tl = pdfjsLib.renderTextLayer({{
           textContentSource: await page.getTextContent(),
           container: tlDiv,
           viewport: vp,
         }});
-        await tl.render();
+        await tl.promise;
         tlDiv.querySelectorAll('span').forEach(s => {{
-          if (s.textContent && QUERY && s.textContent.includes(QUERY.slice(0, 8))) s.classList.add('hl');
+          const st = norm(s.textContent);
+          if (st.length >= 2 && NQUERY.includes(st)) s.classList.add('hl');
         }});
         status.textContent = '已定位到第 ' + foundPage + ' 页(高亮为引用片段)';
       }} catch(e) {{ status.textContent = '高亮渲染失败(仅显示 PDF):' + e.message; }}
       tlDiv.scrollIntoView({{behavior:'smooth'}});
     }}
   }}
-  if (foundPage < 0 && QUERY) {{
+  if (foundPage < 0 && NQUERY) {{
     const d = document.createElement('div');
     d.className = 'nofind';
     d.textContent = '未在 PDF 文本层定位到该段(可能为扫描件,已显示整篇)。';

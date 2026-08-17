@@ -15,6 +15,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from processor.db import init_db
 from processor.import_processor.ingest import seed_from_directory
@@ -74,6 +75,9 @@ def create_app() -> FastAPI:
     app.include_router(chat_router, prefix="/api")
     app.include_router(admin_router, prefix="/api")
     app.include_router(doc_router)  # /doc/{id} 查看页(无 /api 前缀)
+
+    # 本地静态资源(pdf.js 等,避免依赖国外 CDN)
+    app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 
     @app.get("/api/health")
     def health() -> dict:
